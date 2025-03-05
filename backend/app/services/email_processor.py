@@ -1,8 +1,12 @@
 from typing import List, Dict
-import openai
 import re
-# Initialize the OpenAI client correctly
-client = openai.OpenAI()
+import os
+from mistralai import Mistral
+import os
+import time
+print("Mistral API Key:", os.environ.get("MISTRAL_API_KEY"))
+# Initialize Mistral client
+client = Mistral(api_key=os.environ.get("MISTRAL_API_KEY"))
 
 def classify_email(email: Dict, target_industries: List[str]) -> str:
     try:
@@ -17,22 +21,24 @@ def classify_email(email: Dict, target_industries: List[str]) -> str:
         Content: {email['content'][:1000]}  # Limit content length
         
         Industry:"""
-        
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that classifies emails into industries."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=50,
-            temperature=0.3
-        )
-        
+        response = client.chat.complete(model="mistral-small-latest", messages=[
+            {
+                "role": "system",
+                "content": "You are a helpful assistant that classifies emails into industries."
+            },
+            {
+                "content": prompt,
+                "role": "user",
+            },
+        ], stream=False)
         industry = response.choices[0].message.content.strip()
         pattern = r"<INDUSTRY>(.*?)</INDUSTRY>"
-        industry = re.search(pattern, industry).group(1)
-        print("Industry identified: ", industry)
-        return industry if industry in target_industries else 'Other'
+        match = re.search(pattern, industry)
+        if match:
+            industry = match.group(1)
+            print("Industry identified: ", industry)
+            return industry if industry in target_industries else 'Other'
+        return 'Other'
         
     except Exception as e:
         print(f"Error classifying email: {e}")
@@ -41,7 +47,7 @@ def classify_email(email: Dict, target_industries: List[str]) -> str:
 def process_emails(emails: List[Dict], target_industries: List[str]) -> Dict[str, List[Dict]]:
     industry_groups = {industry: [] for industry in target_industries}
     industry_groups['Other'] = []  # Add 'Other' category
-    
+    count = 0
     for email in emails:
         industry = classify_email(email, target_industries)
         industry_groups[industry].append({
@@ -51,5 +57,10 @@ def process_emails(emails: List[Dict], target_industries: List[str]) -> Dict[str
             'timestamp': email.get('timestamp'),
             'identifier': email.get('identifier')
         })
+        wait_time = 0.4
+        if count == 3:
+            wait_time=1
+            count = 0
+        time.sleep(wait_time)
     
     return industry_groups
